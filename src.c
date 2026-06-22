@@ -1,9 +1,11 @@
 #include<stdio.h>
 #include<unistd.h>
-#include<Windows.h>
 #include <sys/wait.h>
 #include <signal.h> // Để dùng SIGKILL, SIGSTOP, SIGCONT
 #include <stdlib.h> // Để dùng hàm atoi() chuyển chuỗi (args[1]) thành số (PID)
+
+#include <time.h>
+#include <dirent.h>
 
 #include <sys/types.h> // Thư viện chứa kiểu dữ liệu pid_t
 #include <string.h>    // Thư viện để dùng hàm strcpy
@@ -159,7 +161,7 @@ int main() {
             continue;
         }
 
-        // Lệnh Resume <pid> - Tiếp tục tiến trình đã dừngs
+        // Lệnh Resume <pid> - Tiếp tục tiến trình đã dừng
         if (strcmp(args[0], "Resume") == 0 || strcmp(args[0], "resume") == 0) {
             if (args[1] == NULL) {
                 printf("Lỗi: Thiếu PID. Cách dùng: Resume <pid>\n");
@@ -171,6 +173,85 @@ int main() {
                     update_process_status(target_pid, "Running");
                 } else {
                     perror("Lỗi khi Resume");
+                }
+            }
+            continue;
+        }
+
+
+        // ----------------------------------------------------
+        // Lệnh help - Hướng dẫn sử dụng Shell
+        if (strcmp(args[0], "help") == 0) {
+            printf("=== MINI SHELL HELP ===\n");
+            printf("- List: In ra danh sach tien trinh ngam\n");
+            printf("- Kill/Stop/Resume <pid>: Quan ly tien trinh ngam\n");
+            printf("- date / time: Xem ngay gio he thong\n");
+            printf("- dir: Liet ke cac file trong thu muc hien tai\n");
+            printf("- path: Xem bien moi truong PATH\n");
+            printf("- addpath <duong_dan>: Them duong dan vao bien PATH\n");
+            printf("- exit: Thoat chuong trinh\n");
+            continue;
+        }
+
+        // ----------------------------------------------------
+        // Lệnh date và time - In thời gian hiện tại
+        if (strcmp(args[0], "date") == 0 || strcmp(args[0], "time") == 0) {
+            time_t t = time(NULL);
+            struct tm tm = *localtime(&t);
+            printf("Thoi gian hien tai: %02d-%02d-%d %02d:%02d:%02d\n", 
+                   tm.tm_mday, tm.tm_mon + 1, tm.tm_year + 1900, 
+                   tm.tm_hour, tm.tm_min, tm.tm_sec);
+            continue;
+        }
+
+        // ----------------------------------------------------
+        // Lệnh dir - Liệt kê file trong thư mục hiện tại (Giống lệnh ls)
+        if (strcmp(args[0], "dir") == 0) {
+            DIR *d;
+            struct dirent *dir;
+            d = opendir("."); // Mở thư mục hiện tại (".")
+            if (d) {
+                while ((dir = readdir(d)) != NULL) {
+                    // Bỏ qua các file ẩn (bắt đầu bằng dấu chấm)
+                    if (dir->d_name[0] != '.') {
+                        printf("%s  ", dir->d_name);
+                    }
+                }
+                printf("\n");
+                closedir(d);
+            } else {
+                perror("Loi doc thu muc");
+            }
+            continue;
+        }
+
+        // ----------------------------------------------------
+        // Lệnh path - Xem đường dẫn biến môi trường PATH
+        if (strcmp(args[0], "path") == 0) {
+            char *current_path = getenv("PATH");
+            if (current_path != NULL) {
+                printf("PATH hien tai: %s\n", current_path);
+            }
+            continue;
+        }
+
+        // ----------------------------------------------------
+        // Lệnh addpath - Thêm đường dẫn vào PATH
+        if (strcmp(args[0], "addpath") == 0) {
+            if (args[1] == NULL) {
+                printf("Loi: Thieu duong dan. Cach dung: addpath <duong_dan>\n");
+            } else {
+                char *current_path = getenv("PATH");
+                char new_path[2048]; // Mảng chứa chuỗi PATH mới
+                
+                // Gộp PATH cũ và đường dẫn mới (cách nhau bởi dấu ':' trên Linux)
+                snprintf(new_path, sizeof(new_path), "%s:%s", current_path, args[1]);
+                
+                // Cập nhật lại biến PATH
+                if (setenv("PATH", new_path, 1) == 0) {
+                    printf("Da them '%s' vao PATH.\n", args[1]);
+                } else {
+                    perror("Loi addpath");
                 }
             }
             continue;
