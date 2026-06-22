@@ -1,6 +1,9 @@
 #include<stdio.h>
 #include<unistd.h>
 #include<Windows.h>
+#include <sys/wait.h>
+#include <signal.h> // Để dùng SIGKILL, SIGSTOP, SIGCONT
+#include <stdlib.h> // Để dùng hàm atoi() chuyển chuỗi (args[1]) thành số (PID)
 
 #include <sys/types.h> // Thư viện chứa kiểu dữ liệu pid_t
 #include <string.h>    // Thư viện để dùng hàm strcpy
@@ -102,6 +105,113 @@ int main() {
         }
         printf("\n");
         // Handle user request
+
+        
+        // Tránh lỗi nếu người dùng chỉ nhấn Enter (không nhập gì)
+        if (idx == 0 || args[0] == NULL) {
+            continue;
+        }
+
+        // PHẦN 1: XỬ LÝ LỆNH BUILT-IN (Các lệnh Shell tự làm)
+        if (strcmp(args[0], "exit") == 0) {
+            printf("Thoát Mini Shell...\n");
+            break; // Thoát khỏi vòng lặp while(1)
+        }
+        
+        if (strcmp(args[0], "List") == 0 || strcmp(args[0], "list") == 0) {
+            list_processes(); // Gọi hàm thứ 3 bạn vừa viết
+            continue; // Chạy xong thì quay lại đầu vòng lặp chờ lệnh mới
+        }
+
+        // ... (Code cũ xử lý lệnh List) ...
+
+        // Lệnh Kill <pid> - Tiêu diệt tiến trình
+        if (strcmp(args[0], "Kill") == 0 || strcmp(args[0], "kill") == 0) {
+            if (args[1] == NULL) {
+                printf("Lỗi: Thiếu PID. Cách dùng: Kill <pid>\n");
+            } else {
+                pid_t target_pid = atoi(args[1]); // Chuyển chuỗi người dùng nhập thành số
+                // Gửi tín hiệu SIGKILL để ép buộc kết thúc
+                if (kill(target_pid, SIGKILL) == 0) { 
+                    printf("Đã tiêu diệt tiến trình %d\n", target_pid);
+                    update_process_status(target_pid, "Killed"); // Cập nhật sổ tay
+                } else {
+                    perror("Lỗi khi Kill");
+                }
+            }
+            continue;
+        }
+
+        // Lệnh Stop <pid> - Tạm dừng tiến trình
+        if (strcmp(args[0], "Stop") == 0 || strcmp(args[0], "stop") == 0) {
+            if (args[1] == NULL) {
+                printf("Lỗi: Thiếu PID. Cách dùng: Stop <pid>\n");
+            } else {
+                pid_t target_pid = atoi(args[1]);
+                // Gửi tín hiệu SIGSTOP để tạm dừng
+                if (kill(target_pid, SIGSTOP) == 0) {
+                    printf("Đã tạm dừng tiến trình %d\n", target_pid);
+                    update_process_status(target_pid, "Stopped");
+                } else {
+                    perror("Lỗi khi Stop");
+                }
+            }
+            continue;
+        }
+
+        // Lệnh Resume <pid> - Tiếp tục tiến trình đã dừngs
+        if (strcmp(args[0], "Resume") == 0 || strcmp(args[0], "resume") == 0) {
+            if (args[1] == NULL) {
+                printf("Lỗi: Thiếu PID. Cách dùng: Resume <pid>\n");
+            } else {
+                pid_t target_pid = atoi(args[1]);
+                // Gửi tín hiệu SIGCONT để tiếp tục chạy
+                if (kill(target_pid, SIGCONT) == 0) {
+                    printf("Đã tiếp tục tiến trình %d\n", target_pid);
+                    update_process_status(target_pid, "Running");
+                } else {
+                    perror("Lỗi khi Resume");
+                }
+            }
+            continue;
+        }
+
+
+        // PHẦN 2: KIỂM TRA CHẠY NGẦM (Background Process - dấu '&')
+        int is_background = 0;
+        // Nếu tham số cuối cùng là dấu "&"
+        if (idx > 0 && strcmp(args[idx - 1], "&") == 0) {
+            is_background = 1;
+            args[idx - 1] = NULL; // Xóa dấu '&' khỏi mảng để hàm execvp() không bị lỗi
+        }
+
+        // PHẦN 3: TẠO TIẾN TRÌNH MỚI CHO CÁC LỆNH BÊN NGOÀI
+        pid_t pid = fork(); // Nhân bản tiến trình hiện tại thành tiến trình cha và con
+
+        if (pid < 0) {
+            // Lỗi khi tạo tiến trình
+            perror("Lỗi fork");
+        } 
+        else if (pid == 0) {
+            // ĐÂY LÀ TIẾN TRÌNH CON: Dùng để chạy lệnh bên ngoài
+            // execvp sẽ thay thế nội dung tiến trình con bằng chương trình người dùng nhập
+            if (execvp(args[0], args) == -1) {
+                printf("Lỗi: Không tìm thấy lệnh '%s'\n", args[0]);
+                exit(1); // Nếu lỗi, tiến trình con tự sát để không ảnh hưởng shell chính
+            }
+        } 
+        else {
+            // ĐÂY LÀ TIẾN TRÌNH CHA (Shell của bạn)
+            if (is_background) {
+                // Nếu chạy ngầm: Lưu PID của tiến trình con vào danh sách quản lý
+                add_process(pid, args[0]); // Gọi hàm thứ 1 bạn vừa viết
+                printf("[Chạy ngầm] Tiến trình '%s' có PID: %d\n", args[0], pid);
+                // Không gọi waitpid() ở đây để shell không bị "treo" chờ đợi
+            } else {
+                // Nếu chạy bình thường (Foreground): Đợi tiến trình con chạy xong
+                waitpid(pid, NULL, 0); 
+            }
+        }
     }
 
     return 0;
